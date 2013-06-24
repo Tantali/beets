@@ -30,20 +30,21 @@ log = logging.getLogger('beets')
 RETRY_INTERVAL = 10  # Seconds.
 RETRIES = 10
 
-def fetch_item_tempo(lib, loglevel, item, write):
+def fetch_item_tempo(lib, loglevel, item, write, force=False):
     """Fetch and store tempo for a single item. If ``write``, then the
     tempo will also be written to the file itself in the bpm field. The 
     ``loglevel`` parameter controls the visibility of the function's 
     status log messages.
     """
     # Skip if the item already has the tempo field.
-    if item.bpm:
+    if item.bpm and not force:
         log.log(loglevel, u'bpm already present: %s - %s' %
                           (item.artist, item.title))
         return
 
     # Fetch tempo.
     tempo = get_tempo(item.artist, item.title)
+    if not tempo: tempo = item.bpm
     if not tempo:
         log.log(loglevel, u'tempo not found: %s - %s' %
                           (item.artist, item.title))
@@ -103,6 +104,7 @@ class EchoNestTempoPlugin(BeetsPlugin):
         self.config.add({
             'apikey': u'NY2KTZHQ0QDSHBAP6',
             'auto': True,
+            'force': False, 
         })
 
         pyechonest.config.ECHO_NEST_API_KEY = \
@@ -129,4 +131,4 @@ class EchoNestTempoPlugin(BeetsPlugin):
     def imported(self, config, task):
         if self.config['auto']:
             for item in task.imported_items():
-                fetch_item_tempo(config.lib, logging.DEBUG, item, False)
+                fetch_item_tempo(config.lib, logging.DEBUG, item, False, force=self.config['force'])
