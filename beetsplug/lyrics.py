@@ -384,6 +384,7 @@ class LyricsPlugin(BeetsPlugin):
             'google_API_key': None,
             'google_engine_ID': u'009217259823014548361:lndtuqkycfu',
             'fallback': None,
+            'force': False,
         })
 
         self.backends = [fetch_lyricswiki, fetch_lyricscom]
@@ -411,9 +412,9 @@ class LyricsPlugin(BeetsPlugin):
     def imported(self, session, task):
         if self.config['auto']:
             for item in task.imported_items():
-                self.fetch_item_lyrics(session.lib, logging.DEBUG, item, False)
+                self.fetch_item_lyrics(session.lib, logging.DEBUG, item, False, force=self.config['force'])
 
-    def fetch_item_lyrics(self, lib, loglevel, item, write):
+    def fetch_item_lyrics(self, lib, loglevel, item, write, force=False):
         """Fetch and store lyrics for a single item. If ``write``, then the
         lyrics will also be written to the file itself. The ``loglevel``
         parameter controls the visibility of the function's status log
@@ -422,13 +423,14 @@ class LyricsPlugin(BeetsPlugin):
         fallback = self.config['fallback'].get()
 
         # Skip if the item already has lyrics.
-        if item.lyrics:
+        if item.lyrics and not force:
             log.log(loglevel, u'lyrics already present: %s - %s' %
                               (item.artist, item.title))
             return
 
         # Fetch lyrics.
         lyrics = self.get_lyrics(item.artist, item.title)
+        if not lyrics: lyrics = item.lyrics
         if not lyrics:
             log.log(loglevel, u'lyrics not found: %s - %s' %
                               (item.artist, item.title))
