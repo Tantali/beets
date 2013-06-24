@@ -28,6 +28,7 @@ import logging
 import pylast
 import os
 import yaml
+import copy
 
 from beets import plugins
 from beets import ui
@@ -204,6 +205,7 @@ class LastGenrePlugin(plugins.BeetsPlugin):
             'source': 'album',
             'force': True,
             'auto': True,
+            'grouping': False,
         })
 
         if self.config['auto']:
@@ -246,7 +248,7 @@ class LastGenrePlugin(plugins.BeetsPlugin):
         elif source == 'artist':
             return 'artist',
 
-    def _get_genre(self, obj):
+    def _get_genre(self, obj, source_force=None, obj_genre=-1):
         """Get the genre string for an Album or Item object based on
         self.sources. Return a `(genre, source)` pair. The
         prioritization order is:
@@ -258,24 +260,24 @@ class LastGenrePlugin(plugins.BeetsPlugin):
             - None
         """
         # Shortcut to existing genre if not forcing.
-        if not self.config['force'] and _is_allowed(obj.genre):
+        if not self.config['force'] and _is_allowed(obj.genre if obj_genre==-1 else obj_genre):
             return obj.genre, 'keep'
 
         # Track genre (for Items only).
         if isinstance(obj, library.Item):
-            if 'track' in self.sources:
+            if ('track' in self.sources and source_force==None) or source_force=='track':
                 result = fetch_track_genre(obj)
                 if result:
                     return result, 'track'
 
         # Album genre.
-        if 'album' in self.sources:
+        if ('album' in self.sources and source_force==None) or source_force in ['track','album']:
             result = fetch_album_genre(obj)
             if result:
                 return result, 'album'
 
         # Artist (or album artist) genre.
-        if 'artist' in self.sources:
+        if ('artist' in self.sources and source_force==None) or source_force in ['track','album','artist']:
             result = None
             if isinstance(obj, library.Item):
                 result = fetch_artist_genre(obj)
@@ -300,7 +302,7 @@ class LastGenrePlugin(plugins.BeetsPlugin):
 
         # Filter the existing genre.
         if obj.genre:
-            result = _strings_to_genre([obj.genre])
+            result = _strings_to_genre([obj.genre if obj_genre==-1 else obj_genre])
             if result:
                 return result, 'original'
 
@@ -330,11 +332,21 @@ class LastGenrePlugin(plugins.BeetsPlugin):
                     album.albumartist, album.album, src, album.genre
                 ))
 
+                grouping = self.config['grouping']
+                if grouping:
+                    options_bu = copy.deepcopy(options)
                 for item in album.items():
                     # If we're using track-level sources, also look up each
                     # track on the album.
-                    if 'track' in self.sources:
-                        item.genre, src = self._get_genre(item)
+                    if 'track' in self.sources or grouping:
+                        if 'track' in self.sources:
+                            item.genre, src = self._get_genre(item)
+                        if grouping:
+                            options['c14n'] = False
+                            options['branches'] = None
+                            item.grouping, src = self._get_genre(item,source_force='track',obj_genre=item.grouping)
+                            options['c14n'] = True
+                            options['branches'] = options_bu['branches']
                         lib.store(item)
                         log.info(u'genre for track {0} - {1} ({2}): {3}'.format(
                             item.artist, item.title, src, item.genre
@@ -354,11 +366,24 @@ class LastGenrePlugin(plugins.BeetsPlugin):
             log.debug(u'added last.fm album genre ({0}): {1}'.format(
                   src, album.genre))
 
-            if 'track' in self.sources:
+            grouping = self.config['grouping']
+            if grouping:
+                options_bu = copy.deepcopy(options)
+            if 'track' in self.sources or grouping:
                 for item in album.items():
-                    item.genre, src = self._get_genre(item)
-                    log.debug(u'added last.fm item genre ({0}): {1}'.format(
-                          src, item.genre))
+                    if 'track' in self.sources:
+                        item.genre, src = self._get_genre(item)
+                        log.debug(u'added last.fm item genre ({0}): {1}'.format(
+                              src, item.genre))
+                    if grouping:
+                        options['c14n'] = False
+                        options['branches'] = None
+                        item.grouping, src = self._get_genre(item,source_force='track',obj_genre=item.grouping)
+                        if item.grouping==None: item.grouping=album.genre
+                        options['c14n'] = True
+                        options['branches'] = options_bu['branches']
+                        log.debug(u'added last.fm item grouping ({0}): {1}'.format(
+                              src, item.grouping))
                     session.lib.store(item)
 
         else:
